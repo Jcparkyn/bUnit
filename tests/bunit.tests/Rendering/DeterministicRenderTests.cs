@@ -29,7 +29,7 @@ public class DeterministicRenderTests : TestContext
 		await cut.WaitForAssertionAsync(() => cut.Find("p").TextContent.ShouldBe("True"));
 	}
 
-	[Fact(Skip = "This test is flaky")]
+	[Fact]
 	public async Task BlockTimerRendering()
 	{
 		var provider = new TriggerableTimeProvider();
