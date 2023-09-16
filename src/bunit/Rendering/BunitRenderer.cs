@@ -37,7 +37,7 @@ public sealed class BunitRenderer : Renderer
 	public Task<Exception> UnhandledException => unhandledExceptionTsc.Task;
 
 	/// <inheritdoc/>
-	public override Dispatcher Dispatcher { get; } = new BunitRendererSynchronizationContextDispatcher();
+	public override Dispatcher Dispatcher { get; }
 
 	/// <summary>
 	/// Gets the number of render cycles that has been performed.
@@ -50,6 +50,7 @@ public sealed class BunitRenderer : Renderer
 	public BunitRenderer(TestServiceProvider services, ILoggerFactory loggerFactory)
 		: base(services, loggerFactory, new BunitComponentActivator(services.GetRequiredService<ComponentFactoryCollection>(), null))
 	{
+		Dispatcher = new BunitRendererSynchronizationContextDispatcher(renderBlocker);
 		logger = loggerFactory.CreateLogger<BunitRenderer>();
 		ElementReferenceContext = new WebElementReferenceContext(services.GetRequiredService<IJSRuntime>());
 		this.services = services;
@@ -61,6 +62,7 @@ public sealed class BunitRenderer : Renderer
 	public BunitRenderer(TestServiceProvider services, ILoggerFactory loggerFactory, IComponentActivator componentActivator)
 		: base(services, loggerFactory, new BunitComponentActivator(services.GetRequiredService<ComponentFactoryCollection>(), componentActivator))
 	{
+		Dispatcher = new BunitRendererSynchronizationContextDispatcher(renderBlocker);
 		logger = loggerFactory.CreateLogger<BunitRenderer>();
 		ElementReferenceContext = new WebElementReferenceContext(services.GetRequiredService<IJSRuntime>());
 		this.services = services;
@@ -106,7 +108,6 @@ public sealed class BunitRenderer : Renderer
 
 		var result = Dispatcher.InvokeAsync(() =>
 		{
-			UnblockRendering();
 			ResetUnhandledException();
 
 			try
@@ -124,10 +125,6 @@ public sealed class BunitRenderer : Renderer
 
 				var betterExceptionMsg = new UnknownEventHandlerIdException(eventHandlerId, fieldInfo, ex);
 				return Task.FromException(betterExceptionMsg);
-			}
-			finally
-			{
-				BlockRendering();
 			}
 		});
 
@@ -174,13 +171,10 @@ public sealed class BunitRenderer : Renderer
 		{
 			ResetUnhandledException();
 
-			UnblockRendering();
 			foreach (var root in rootComponentIds)
 			{
 				RemoveRootComponent(root);
 			}
-
-			BlockRendering();
 		});
 
 		rootComponentIds.Clear();
@@ -188,46 +182,12 @@ public sealed class BunitRenderer : Renderer
 	}
 
 	/// <summary>
-	/// Prepares the renderer for a new asynchronous render operation.
+	/// Unblocks the renderer so that every work item until now is handled.
 	/// </summary>
-	internal void UnblockRendering() => renderBlocker.Set();
-
-	internal void AllowOneRenderCycle()
+	public void AllowOneRenderCycle()
 	{
-		// Normally UnblockRendering will be called inside the Dispatcher
-		// so we don't have to deal with concurrency issues. But here we can't as
-		// the average case is that the Renderer is currently "locked" by the renderBlocker, so we go into a deadlock
-		// To prevent concurrency issues, we introduce this "defensive" lock.
-		//
-		// In WaitForHelpers we allow one render cycle which triggers the OnRender event of the component
-		// This will trigger another check inside the WaitForHelpers.
-		// The WaitForHelper and the Renderer are in different threads, leading to concurrency issues.
-		lock (renderCycleLock)
-		{
-			blockRenderer = true;
-			UnblockRendering();
-		}
-	}
-
-	internal void EnableUnblockedRendering(Action act)
-	{
-		Dispatcher.InvokeAsync(() =>
-		{
-			UnblockRendering();
-			act();
-			BlockRendering();
-		});
-	}
-
-	internal Task<T> EnableUnblockedRendering<T>(Func<T> act)
-	{
-		return Dispatcher.InvokeAsync(() =>
-		{
-			UnblockRendering();
-			var result = act();
-			BlockRendering();
-			return result;
-		});
+		renderBlocker.Set();
+		Dispatcher.InvokeAsync(() => renderBlocker.Reset());
 	}
 
 	[SuppressMessage("Major Code Smell", "S3011:Reflection should not be used to increase accessibility of classes, methods, or fields", Justification = "Accesses private method in this type.")]
@@ -276,14 +236,6 @@ public sealed class BunitRenderer : Renderer
 			return;
 		}
 
-		renderBlocker.Wait();
-
-		if (disposed)
-		{
-			logger.LogRenderCycleActiveAfterDispose();
-			return;
-		}
-
 		base.ProcessPendingRender();
 	}
 
@@ -293,27 +245,10 @@ public sealed class BunitRenderer : Renderer
 		if (disposed)
 			return Task.CompletedTask;
 
-		renderBlocker.Wait();
-
-		if (disposed)
-			return Task.CompletedTask;
-
-		BlockNextRenderCycle();
-
 		var renderEvent = new RenderEvent();
 		PrepareRenderEvent(renderBatch);
 		ApplyRenderEvent(renderEvent);
 		return Task.CompletedTask;
-
-		void BlockNextRenderCycle()
-		{
-			if (blockRenderer)
-			{
-				BlockRendering();
-				blockRenderer = false;
-			}
-		}
-
 		void PrepareRenderEvent(in RenderBatch renderBatch)
 		{
 			for (var i = 0; i < renderBatch.DisposedComponentIDs.Count; i++)
@@ -395,7 +330,6 @@ public sealed class BunitRenderer : Renderer
 		if(disposed)
 			return;
 
-		BlockRendering();
 		disposed = true;
 
 		if (disposing)
@@ -409,13 +343,11 @@ public sealed class BunitRenderer : Renderer
 			unhandledExceptionTsc.TrySetCanceled();
 		}
 
-		UnblockRendering();
-		renderBlocker.Dispose();
-
 		base.Dispose(disposing);
-	}
 
-	private void BlockRendering() => renderBlocker.Reset();
+		// TODO stgi: WaitForDoesNotRenderIfConditionIsInitiallyMet deadlocks if the ManualResetEventSlim is disposed.
+		// renderBlocker.Dispose();
+	}
 
 	private void ApplyRenderEvent(RenderEvent renderEvent)
 	{
@@ -463,7 +395,6 @@ public sealed class BunitRenderer : Renderer
 
 		var renderTask = Dispatcher.InvokeAsync(() =>
 		{
-			UnblockRendering();
 			ResetUnhandledException();
 
 			var root = new RootComponent(renderFragment);
@@ -490,7 +421,6 @@ public sealed class BunitRenderer : Renderer
 		logger.LogInitialRenderCompleted(result.ComponentId);
 
 		AssertNoUnhandledExceptions();
-		BlockRendering();
 
 		return result;
 	}

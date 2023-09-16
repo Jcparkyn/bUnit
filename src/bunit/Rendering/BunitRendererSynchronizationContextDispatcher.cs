@@ -4,9 +4,9 @@ internal class BunitRendererSynchronizationContextDispatcher : Dispatcher
 {
 	private readonly BunitRendererSynchronizationContext context;
 
-	public BunitRendererSynchronizationContextDispatcher()
+	public BunitRendererSynchronizationContextDispatcher(ManualResetEventSlim renderBlocker)
 	{
-		context = new BunitRendererSynchronizationContext();
+		context = new BunitRendererSynchronizationContext(renderBlocker);
 		context.UnhandledException += (sender, e) =>
 		{
 			OnUnhandledException(e);

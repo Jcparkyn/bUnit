@@ -6,20 +6,23 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 {
 	private readonly object lockObject;
 	private Task taskQueue;
+	private readonly ManualResetEventSlim renderBlocker;
 
 	public event UnhandledExceptionEventHandler? UnhandledException;
 
-	public BunitRendererSynchronizationContext() : this(new object(), Task.CompletedTask) { }
+	public BunitRendererSynchronizationContext(ManualResetEventSlim renderBlocker)
+		: this(new object(), Task.CompletedTask, renderBlocker) { }
 
-	private BunitRendererSynchronizationContext(object @lock, Task taskQueue)
+	private BunitRendererSynchronizationContext(object @lock, Task taskQueue, ManualResetEventSlim renderBlocker)
 	{
 		lockObject = @lock;
 		this.taskQueue = taskQueue;
+		this.renderBlocker = renderBlocker;
 	}
 
 	/// <inheritdoc />
 	public override SynchronizationContext CreateCopy() =>
-		new BunitRendererSynchronizationContext(lockObject, taskQueue);
+		new BunitRendererSynchronizationContext(lockObject, taskQueue, renderBlocker);
 
 	// The following two Action/Func<TResult> overloads can be more optimized than their
 	// async equivalents, as they don't need to deal with the possibility of the callback
@@ -112,10 +115,12 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 
 	public Task InvokeAsync(Func<Task> asyncAction)
 	{
+		renderBlocker.Reset();
+
 		var completion = AsyncTaskMethodBuilder.Create();
 		var t = completion.Task; // lazy initialize before passing around the struct
 
-		SendIfQuiescedOrElsePost(static async state =>
+		SendIfQuiescedOrElsePost(async state =>
 		{
 			try
 			{
@@ -126,17 +131,25 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			{
 				state.completion.SetException(exception);
 			}
+			finally
+			{
+				renderBlocker.Set();
+			}
 		}, (completion, asyncAction));
+
+		t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
 
 		return t;
 	}
 
 	public Task<TResult> InvokeAsync<TResult>(Func<Task<TResult>> asyncFunction)
 	{
+		renderBlocker.Reset();
+
 		var completion = AsyncTaskMethodBuilder<TResult>.Create();
 		var t = completion.Task; // lazy initialize before passing around the struct
 
-		SendIfQuiescedOrElsePost(static async state =>
+		SendIfQuiescedOrElsePost(async state =>
 		{
 			try
 			{
@@ -146,7 +159,13 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			{
 				state.completion.SetException(exception);
 			}
+			finally
+			{
+				renderBlocker.Set();
+			}
 		}, (completion, asyncFunction));
+
+		t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
 
 		return t;
 	}

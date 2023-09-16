@@ -9,7 +9,6 @@
     protected override async Task OnInitializedAsync()
     {
         var result = await DataProvider;
-        await Task.Yield();
         Data = result;
     }
 }
