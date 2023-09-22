@@ -394,7 +394,7 @@ public class BunitRendererTest : TestContext
 	}
 
 	[Fact(DisplayName = "UnhandledException has a reference to latest unhandled exception thrown by a component during OnAfterRenderAsync")]
-	public void Test203()
+	public async Task Test203()
 	{
 		// Arrange
 		var planned = JSInterop.SetupVoid("foo");
@@ -405,7 +405,7 @@ public class BunitRendererTest : TestContext
 
 		// Assert
 		planned.VerifyInvoke("foo");
-		Renderer.UnhandledException.Result.ShouldBeOfType<InvalidOperationException>();
+		(await Renderer.UnhandledException).ShouldBeOfType<InvalidOperationException>();
 	}
 
 	[Fact(DisplayName = "Can render components that have a RenderMode attribute")]

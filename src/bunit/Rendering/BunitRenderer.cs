@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using System.Runtime.ExceptionServices;
@@ -16,11 +17,9 @@ public sealed class BunitRenderer : Renderer
 	private readonly ILogger<BunitRenderer> logger;
 	private readonly TestServiceProvider services;
 	private readonly ManualResetEventSlim renderBlocker = new(initialState: true);
-	private readonly object renderCycleLock = new();
 	private TaskCompletionSource<Exception> unhandledExceptionTsc = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private Exception? capturedUnhandledException;
 	private bool disposed;
-	private bool blockRenderer;
 
 	private bool IsBatchInProgress
 	{
@@ -43,6 +42,11 @@ public sealed class BunitRenderer : Renderer
 	/// Gets the number of render cycles that has been performed.
 	/// </summary>
 	internal int RenderCount { get; private set; }
+
+	/// <summary>
+	/// Gets if the renderer is blocked from rendering.
+	/// </summary>
+	internal bool IsBlocked => !renderBlocker.IsSet;
 
 	/// <summary>
 	/// Initializes a new instance of the <see cref="BunitRenderer"/> class.
@@ -186,8 +190,8 @@ public sealed class BunitRenderer : Renderer
 	/// </summary>
 	public void AllowOneRenderCycle()
 	{
-		renderBlocker.Set();
 		Dispatcher.InvokeAsync(() => renderBlocker.Reset());
+		renderBlocker.Set();
 	}
 
 	[SuppressMessage("Major Code Smell", "S3011:Reflection should not be used to increase accessibility of classes, methods, or fields", Justification = "Accesses private method in this type.")]
@@ -406,23 +410,13 @@ public sealed class BunitRenderer : Renderer
 			return result;
 		});
 
-		IRenderedFragment result;
-
-		if (!renderTask.IsCompleted)
-		{
-			logger.LogAsyncInitialRender();
-			result = renderTask.GetAwaiter().GetResult();
-		}
-		else
-		{
-			result = renderTask.Result;
-		}
-
-		logger.LogInitialRenderCompleted(result.ComponentId);
-
 		AssertNoUnhandledExceptions();
 
-		return result;
+		Debug.Assert(renderTask.IsCompletedSuccessfully);
+
+		logger.LogInitialRenderCompleted(renderTask.Result.ComponentId);
+
+		return renderTask.Result;
 	}
 
 	private IEnumerable<IRenderedComponent<TComponent>> FindComponentsInternal<TComponent>(IRenderedFragment parentComponent)

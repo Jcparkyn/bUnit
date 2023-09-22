@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
 namespace Bunit.Rendering;
@@ -84,26 +85,31 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 		{
 			if (!taskQueue.IsCompleted)
 			{
-				taskQueue = PostAsync(taskQueue, Execute, (completion, function, this));
+				taskQueue = PostAsync(taskQueue, Execute, (completion, function, this, renderBlocker));
+				taskQueue = taskQueue.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
+				renderBlocker.Set();
 				return t;
 			}
 
-			taskQueue = t;
+			taskQueue = t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
 		}
 
-		Execute((completion, function, this));
+		Execute((completion, function, this, renderBlocker));
 		return t;
 
-		static void Execute((AsyncTaskMethodBuilder<TResult> Completion, Func<TResult> Func, BunitRendererSynchronizationContext Context) state)
+		static void Execute((AsyncTaskMethodBuilder<TResult> Completion, Func<TResult> Func, BunitRendererSynchronizationContext Context, ManualResetEventSlim RenderBlocker) state)
 		{
 			var original = Current;
 			SetSynchronizationContext(state.Context);
 			try
 			{
-				state.Completion.SetResult(state.Func());
+				var result = state.Func();
+				state.RenderBlocker.Reset();
+				state.Completion.SetResult(result);
 			}
 			catch (Exception exception)
 			{
+				state.RenderBlocker.Reset();
 				state.Completion.SetException(exception);
 			}
 			finally
@@ -115,8 +121,6 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 
 	public Task InvokeAsync(Func<Task> asyncAction)
 	{
-		renderBlocker.Reset();
-
 		var completion = AsyncTaskMethodBuilder.Create();
 		var t = completion.Task; // lazy initialize before passing around the struct
 
@@ -133,11 +137,12 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			}
 			finally
 			{
-				renderBlocker.Set();
+				renderBlocker.Reset();
 			}
 		}, (completion, asyncAction));
 
 		t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
+		renderBlocker.Set();
 
 		return t;
 	}

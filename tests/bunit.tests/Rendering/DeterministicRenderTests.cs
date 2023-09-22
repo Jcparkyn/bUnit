@@ -170,6 +170,23 @@ public class DeterministicRenderTests : TestContext
 		cut.Find("p").TextContent.ShouldBe("1");
 	}
 
+	[Fact]
+	public void Renderer_blocks_after_initial_synchronous_render()
+	{
+		Render<Simple1>();
+
+		Renderer.IsBlocked.ShouldBeTrue();
+	}
+
+	[Fact]
+	public void Render_component_twice()
+	{
+		Render<Simple1>();
+		Render<Simple1>();
+
+		Renderer.IsBlocked.ShouldBeTrue();
+	}
+
 	private sealed class RenderOnDemandComponent : IComponent
 	{
 		private RenderHandle renderHandle;
