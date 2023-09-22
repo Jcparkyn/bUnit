@@ -141,7 +141,7 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			}
 		}, (completion, asyncAction));
 
-		t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
+		t = t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
 		renderBlocker.Set();
 
 		return t;
@@ -170,9 +170,11 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			}
 		}, (completion, asyncFunction));
 
-		t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
-
-		return t;
+		return  t.ContinueWith(r =>
+		{
+			renderBlocker.Wait();
+			return r;
+		}, TaskScheduler.Default).Unwrap();
 	}
 
 	/// <inheritdoc/>

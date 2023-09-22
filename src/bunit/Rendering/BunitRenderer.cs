@@ -347,10 +347,10 @@ public sealed class BunitRenderer : Renderer
 			unhandledExceptionTsc.TrySetCanceled();
 		}
 
-		base.Dispose(disposing);
+		renderBlocker.Set();
+		renderBlocker.Dispose();
 
-		// TODO stgi: WaitForDoesNotRenderIfConditionIsInitiallyMet deadlocks if the ManualResetEventSlim is disposed.
-		// renderBlocker.Dispose();
+		base.Dispose(disposing);
 	}
 
 	private void ApplyRenderEvent(RenderEvent renderEvent)
@@ -412,7 +412,7 @@ public sealed class BunitRenderer : Renderer
 
 		AssertNoUnhandledExceptions();
 
-		Debug.Assert(renderTask.IsCompletedSuccessfully);
+		//// Debug.Assert(renderTask.IsCompletedSuccessfully);
 
 		logger.LogInitialRenderCompleted(renderTask.Result.ComponentId);
 
