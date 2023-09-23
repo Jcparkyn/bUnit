@@ -161,7 +161,7 @@ public class DeterministicRenderTests : TestContext
 		var cut = Render<LoadingClickCounter>(
 			ps => ps.Add(
 				p => p.DataProvider, 
-				Task.Delay(10000).ContinueWith(x => 1, TaskScheduler.Current)));
+				Task.Delay(10000).ContinueWith(x => 2, TaskScheduler.Current)));
 
 		cut.Find("p").TextContent.ShouldBe("0");
 

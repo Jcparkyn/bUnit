@@ -87,7 +87,6 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			{
 				taskQueue = PostAsync(taskQueue, Execute, (completion, function, this, renderBlocker));
 				taskQueue = taskQueue.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
-				renderBlocker.Set();
 				return t;
 			}
 
@@ -142,7 +141,6 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 		}, (completion, asyncAction));
 
 		t = t.ContinueWith(_ => renderBlocker.Wait(), TaskScheduler.Default);
-		renderBlocker.Set();
 
 		return t;
 	}
@@ -154,7 +152,7 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 		var completion = AsyncTaskMethodBuilder<TResult>.Create();
 		var t = completion.Task; // lazy initialize before passing around the struct
 
-		SendIfQuiescedOrElsePost(async state =>
+		SendIfQuiescedOrElsePost(async static state =>
 		{
 			try
 			{
@@ -163,10 +161,6 @@ internal class BunitRendererSynchronizationContext : SynchronizationContext
 			catch (Exception exception)
 			{
 				state.completion.SetException(exception);
-			}
-			finally
-			{
-				renderBlocker.Set();
 			}
 		}, (completion, asyncFunction));
 

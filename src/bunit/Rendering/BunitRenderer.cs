@@ -109,7 +109,6 @@ public sealed class BunitRenderer : Renderer
 		ArgumentNullException.ThrowIfNull(fieldInfo);
 
 		ObjectDisposedException.ThrowIf(disposed, this);
-
 		var result = Dispatcher.InvokeAsync(() =>
 		{
 			ResetUnhandledException();
@@ -132,6 +131,7 @@ public sealed class BunitRenderer : Renderer
 			}
 		});
 
+		renderBlocker.Set();
 		if (result.IsFaulted && result.Exception is not null)
 		{
 			HandleException(result.Exception);
@@ -397,6 +397,7 @@ public sealed class BunitRenderer : Renderer
 	{
 		ObjectDisposedException.ThrowIf(disposed, this);
 
+		renderBlocker.Set();
 		var renderTask = Dispatcher.InvokeAsync(() =>
 		{
 			ResetUnhandledException();
